@@ -113,46 +113,59 @@ pub mod __rt {
     use ext::TokenStreamExt;
     pub use proc_macro2::*;
 
-    fn is_ident_start(c: u8) -> bool {
-        (b'a' <= c && c <= b'z') || (b'A' <= c && c <= b'Z') || c == b'_'
-    }
+    #[cfg(not(quote_can_special_case_ident))]
+    pub mod slow {
+        use proc_macro2::{Span, TokenStream};
 
-    fn is_ident_continue(c: u8) -> bool {
-        (b'a' <= c && c <= b'z')
-            || (b'A' <= c && c <= b'Z')
-            || c == b'_'
-            || (b'0' <= c && c <= b'9')
-    }
-
-    fn is_ident(token: &str) -> bool {
-        if token.bytes().all(|digit| digit >= b'0' && digit <= b'9') {
-            return false;
+        fn is_ident_start(c: u8) -> bool {
+            (b'a' <= c && c <= b'z') || (b'A' <= c && c <= b'Z') || c == b'_'
         }
 
-        let mut bytes = token.bytes();
-        let first = bytes.next().unwrap();
-        if !is_ident_start(first) {
-            return false;
+        fn is_ident_continue(c: u8) -> bool {
+            (b'a' <= c && c <= b'z')
+                || (b'A' <= c && c <= b'Z')
+                || c == b'_'
+                || (b'0' <= c && c <= b'9')
         }
-        for ch in bytes {
-            if !is_ident_continue(ch) {
+
+        fn is_ident(token: &str) -> bool {
+            if token.bytes().all(|digit| digit >= b'0' && digit <= b'9') {
                 return false;
             }
+
+            let mut bytes = token.bytes();
+            let first = bytes.next().unwrap();
+            if !is_ident_start(first) {
+                return false;
+            }
+            for ch in bytes {
+                if !is_ident_continue(ch) {
+                    return false;
+                }
+            }
+            true
         }
-        true
+
+        pub fn parse(tokens: &mut TokenStream, span: Span, s: &str) {
+            if is_ident(s) {
+                // Fast path, since idents are the most common token.
+                super::push_ident(tokens, span, s);
+            } else {
+                super::push_tt(tokens, span, s);
+            }
+        }
     }
 
-    pub fn parse(tokens: &mut TokenStream, span: Span, s: &str) {
-        if is_ident(s) {
-            // Fast path, since idents are the most common token.
-            tokens.append(Ident::new(s, span));
-        } else {
-            let s: TokenStream = s.parse().expect("invalid token stream");
-            tokens.extend(s.into_iter().map(|mut t| {
-                t.set_span(span);
-                t
-            }));
-        }
+    pub fn push_ident(tokens: &mut TokenStream, span: Span, s: &str) {
+        tokens.append(Ident::new(s, span));
+    }
+
+    pub fn push_tt(tokens: &mut TokenStream, span: Span, s: &str) {
+        let s: TokenStream = s.parse().expect("invalid token stream");
+        tokens.extend(s.into_iter().map(|mut t| {
+            t.set_span(span);
+            t
+        }));
     }
 
     macro_rules! push_punct {
@@ -841,8 +854,30 @@ macro_rules! quote_each_token {
     };
 
     ($tokens:ident $span:ident $first:tt $($rest:tt)*) => {
-        $crate::__rt::parse(&mut $tokens, $span, quote_stringify!($first));
+        quote_ident_or_tt!($tokens $span $first);
         quote_each_token!($tokens $span $($rest)*);
+    };
+}
+
+#[cfg(quote_can_special_case_ident)]
+#[macro_export(local_inner_macros)]
+#[doc(hidden)]
+macro_rules! quote_ident_or_tt {
+    ($tokens:ident $span:ident $first:ident) => {
+        $crate::__rt::push_ident(&mut $tokens, $span, quote_stringify!($first));
+    };
+
+    ($tokens:ident $span:ident $first:tt) => {
+        $crate::__rt::push_tt(&mut $tokens, $span, quote_stringify!($first));
+    };
+}
+
+#[cfg(not(quote_can_special_case_ident))]
+#[macro_export(local_inner_macros)]
+#[doc(hidden)]
+macro_rules! quote_ident_or_tt {
+    ($tokens:ident $span:ident $first:tt) => {
+        $crate::__rt::slow::parse(&mut $tokens, $span, quote_stringify!($first));
     };
 }
 
