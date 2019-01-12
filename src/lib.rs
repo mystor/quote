@@ -101,11 +101,17 @@
 extern crate proc_macro;
 extern crate proc_macro2;
 
+#[cfg(use_quote_macros)]
+extern crate quote_macros;
+
 mod ext;
 pub use ext::TokenStreamExt;
 
 mod to_tokens;
 pub use to_tokens::ToTokens;
+
+#[cfg(use_quote_macros)]
+pub use quote_macros::quote_one_token_func;
 
 // Not public API.
 #[doc(hidden)]
@@ -868,7 +874,7 @@ macro_rules! quote_ident_or_tt {
     };
 
     ($tokens:ident $span:ident $first:tt) => {
-        $crate::__rt::push_tt(&mut $tokens, $span, quote_stringify!($first));
+        quote_one_token!($tokens $span $first);
     };
 }
 
@@ -889,5 +895,84 @@ macro_rules! quote_ident_or_tt {
 macro_rules! quote_stringify {
     ($tt:tt) => {
         stringify!($tt)
+    };
+}
+
+#[cfg(not(use_quote_macros))]
+#[macro_export(local_inner_macros)]
+#[doc(hidden)]
+macro_rules! quote_one_token {
+    ($tokens:ident $span:ident $token:tt) => {
+        $crate::__rt::parse(&mut $tokens, $span, quote_stringify!($token));
+    };
+}
+
+#[cfg(use_quote_macros)]
+#[macro_export(local_inner_macros)]
+#[doc(hidden)]
+macro_rules! quote_one_token {
+    ($tokens:ident $span:ident $token:tt) => {
+        {
+            // Rust doesn't let you use bang macros in statement context, so to
+            // declare the function we want, we need to force the macro to be
+            // expanded in an item context.
+            mod force_item {
+                quote_one_token_func!(quote_this $token);
+            }
+            force_item::quote_this(&mut $tokens, $span);
+        }
+    };
+}
+
+// Helper macro used to append new tokens onto the stream. These are generated
+// by the proc_macro instead of direct calls as the macros crate doesn't have
+// access to `$crate`.
+#[macro_export(local_inner_macros)]
+#[doc(hidden)]
+macro_rules! quote_proc_macro_rt {
+    (to_tokens $tokens:ident $target:expr) => {
+        $crate::ToTokens::to_tokens(&$target, $tokens);
+    };
+
+    // Parse a given string, and append the result of parsing it to the given
+    // TokenStream. This is used for literals, which are difficult to construct
+    // explicitly, and for raw identifiers.
+    (parse $tokens:ident $span:ident $text:expr) => {
+        $crate::__rt::push_tt($tokens, $span, $text);
+    };
+
+    // Append a single identifier to the given TokenStream. Note that this
+    // doesn't handle raw identifiers, which have to be appended with `parse`.
+    (Ident $tokens:ident $span:ident $text:expr) => {
+        $crate::TokenStreamExt::append($tokens, $crate::__rt::Ident::new($text, $span));
+    };
+
+    // Append a single punctuation token to the current TokenStream.
+    (Punct $tokens:ident $span:ident $spacing:ident $chr:expr) => {
+        $crate::TokenStreamExt::append($tokens, {
+            let mut punct = $crate::__rt::Punct::new($chr, $crate::__rt::Spacing::$spacing);
+            punct.set_span($span);
+            punct
+        });
+    };
+
+    // Append a group to the given TokenStream.
+    (Group $tokens:ident $span:ident $delim:ident $($tt:tt)*) => {
+        $crate::TokenStreamExt::append($tokens, {
+            let mut group = $crate::__rt::Group::new(
+                $crate::__rt::Delimiter::$delim,
+                quote_spanned!($span=> $($tt)*),
+            );
+            group.set_span($span);
+            group
+        });
+    };
+
+    (TokenStream) => {
+        &mut $crate::__rt::TokenStream
+    };
+
+    (Span) => {
+        $crate::__rt::Span
     };
 }

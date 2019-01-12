@@ -13,6 +13,7 @@ include = ["Cargo.toml", "src/**/*.rs", "tests/**/*.rs", "README.md", "LICENSE-A
 
 [dependencies]
 proc-macro2 = { version = "0.4.21", default-features = false }
+quote_macros = { path = "quote_macros" }
 
 [features]
 default = ["proc-macro"]

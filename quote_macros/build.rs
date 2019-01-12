@@ -11,19 +11,6 @@ fn main() {
         None => return,
     };
 
-    // Rust 1.20 fixed a macro matching limitation that we can use for a
-    // performance win when matching $:ident.
-    // https://github.com/rust-lang/rust/pull/42913
-    if minor >= 20 {
-        println!("cargo:rustc-cfg=quote_can_special_case_ident");
-    }
-
-    // 128-bit integers stabilized in Rust 1.26:
-    // https://blog.rust-lang.org/2018/05/10/Rust-1.26.html
-    if minor >= 26 {
-        println!("cargo:rustc-cfg=integer128");
-    }
-
     // procedural bang-macros were stabilized in Rust 1.30, and can be used to
     // speed up quote!'s implementation.
     if minor >= 30 {
