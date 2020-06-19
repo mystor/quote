@@ -475,9 +475,17 @@ macro_rules! quote {
         $crate::__private::TokenStream::new()
     };
     ($($tt:tt)*) => {{
-        let mut _s = $crate::__private::TokenStream::new();
-        $crate::quote_each_token!(_s $($tt)*);
-        _s
+        let has_vars = false;
+        $crate::pounded_var_names!(quote_bind_has_vars!(has_vars) $($tt)*);
+        if has_vars {
+            let mut _s = $crate::__private::TokenStream::new();
+            $crate::quote_each_token!(_s $($tt)*);
+            _s
+        } else {
+            stringify!($($tt)*)
+                .parse::<$crate::__private::TokenStream>()
+                .expect("invalid token stream")
+        }
     }};
 }
 
@@ -638,6 +646,14 @@ macro_rules! pounded_var_with_context {
     };
 
     ($call:ident! $extra:tt $b1:tt $curr:tt) => {};
+}
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! quote_bind_has_vars {
+    ($has_vars:ident $var:ident) => {
+        let $has_vars = true;
+    };
 }
 
 #[macro_export]
